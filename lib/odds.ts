@@ -67,7 +67,12 @@ function parseEvents(events: OddsEvent[]): PropLine[] {
 // Try up to this many events; stop once we have props
 const MAX_EVENTS_TO_TRY = 10
 
-export async function fetchPlayerProps(sport: string): Promise<PropLine[]> {
+export type FetchPropsResult = {
+  props: PropLine[]
+  eventCount: number
+}
+
+export async function fetchPlayerProps(sport: string): Promise<FetchPropsResult> {
   const sportKey = SPORT_KEYS[sport]
   const markets = SPORT_MARKETS[sport]
   const apiKey = process.env.ODDS_API_KEY
@@ -87,7 +92,7 @@ export async function fetchPlayerProps(sport: string): Promise<PropLine[]> {
     commence_time: string
   }> = await eventsRes.json()
 
-  if (eventList.length === 0) return []
+  if (eventList.length === 0) return { props: [], eventCount: 0 }
 
   // Step 2: fetch props for events in parallel, up to MAX_EVENTS_TO_TRY
   const batch = eventList.slice(0, MAX_EVENTS_TO_TRY)
@@ -104,7 +109,10 @@ export async function fetchPlayerProps(sport: string): Promise<PropLine[]> {
     }),
   )
 
-  return results.flatMap((r) => (r.status === 'fulfilled' ? r.value : []))
+  return {
+    props: results.flatMap((r) => (r.status === 'fulfilled' ? r.value : [])),
+    eventCount: eventList.length,
+  }
 }
 
 // Odds API response types

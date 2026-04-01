@@ -36,9 +36,9 @@ export async function POST(req: Request) {
   }
 
   // 1. Fetch live player props from The Odds API
-  let allProps
+  let fetchResult
   try {
-    allProps = await fetchPlayerProps(sport)
+    fetchResult = await fetchPlayerProps(sport)
   } catch (err) {
     return Response.json(
       { error: `Failed to fetch odds: ${(err as Error).message}` },
@@ -46,9 +46,11 @@ export async function POST(req: Request) {
     )
   }
 
+  const { props: allProps, eventCount } = fetchResult
+
   if (allProps.length === 0) {
     return Response.json(
-      { error: 'No player props available right now. Check back closer to game time.' },
+      { empty: true, offSeason: eventCount === 0 },
       { status: 404 },
     )
   }

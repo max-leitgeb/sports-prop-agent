@@ -139,7 +139,7 @@ function PropCard({ pick }: { pick: PropPick }) {
 export default function Home() {
   const [sport, setSport] = useState<Sport>('NFL')
   const [picks, setPicks] = useState<PropPick[]>([])
-  const [status, setStatus] = useState<'idle' | 'loading' | 'streaming' | 'done' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'loading' | 'streaming' | 'done' | 'error' | 'empty' | 'offseason'>('idle')
   const [error, setError] = useState<string | null>(null)
 
   const [filterGame, setFilterGame] = useState<string | 'all'>('all')
@@ -200,6 +200,10 @@ export default function Home() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
+        if (data.empty) {
+          setStatus(data.offSeason ? 'offseason' : 'empty')
+          return
+        }
         throw new Error(data.error || `Server error: ${res.status}`)
       }
 
@@ -390,6 +394,30 @@ export default function Home() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {status === 'offseason' && (
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-6 py-10 text-center">
+            <p className="text-2xl mb-3">🏟️</p>
+            <h3 className="text-base font-semibold text-zinc-800 dark:text-zinc-200 mb-1">
+              {sport} is out of season
+            </h3>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              No upcoming {sport} games are scheduled right now. Check back when the season starts.
+            </p>
+          </div>
+        )}
+
+        {status === 'empty' && (
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-6 py-10 text-center">
+            <p className="text-2xl mb-3">📋</p>
+            <h3 className="text-base font-semibold text-zinc-800 dark:text-zinc-200 mb-1">
+              No prop lines posted yet
+            </h3>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Games are scheduled but books haven't posted player props yet. Check back closer to game time.
+            </p>
           </div>
         )}
 
