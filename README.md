@@ -6,7 +6,9 @@ An AI-powered sports analytics tool that fetches live player prop lines, researc
 
 Select a sport, click **Analyze Props**, and watch picks stream in as the agent works.
 
-![Sports Prop Analytics](public/next.svg)
+![Sports Prop Analytics](public/demo.png)
+
+**Live:** https://sports-prop-agent.vercel.app
 
 ## How It Works
 
