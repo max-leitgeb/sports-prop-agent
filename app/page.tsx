@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 
 type Recommendation = 'OVER' | 'UNDER' | 'AVOID'
 type Confidence = 'high' | 'medium' | 'low'
@@ -9,6 +9,7 @@ type PropPick = {
   player: string
   propType: string
   line: number
+  game: string
   recommendation: Recommendation
   confidence: Confidence
   reasoning: string
@@ -34,6 +35,49 @@ const REC_BADGE: Record<Recommendation, string> = {
   OVER: 'bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-200',
   UNDER: 'bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200',
   AVOID: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
+}
+
+function FilterPills<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string
+  options: T[]
+  value: T | 'all'
+  onChange: (v: T | 'all') => void
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-xs text-zinc-400 dark:text-zinc-500 font-medium uppercase tracking-wide shrink-0">
+        {label}
+      </span>
+      <button
+        onClick={() => onChange('all')}
+        className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+          value === 'all'
+            ? 'bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-900'
+            : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+        }`}
+      >
+        All
+      </button>
+      {options.map((opt) => (
+        <button
+          key={opt}
+          onClick={() => onChange(opt)}
+          className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+            value === opt
+              ? 'bg-zinc-800 text-white dark:bg-zinc-200 dark:text-zinc-900'
+              : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
+          }`}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  )
 }
 
 function PropCard({ pick }: { pick: PropPick }) {
@@ -98,10 +142,54 @@ export default function Home() {
   const [status, setStatus] = useState<'idle' | 'loading' | 'streaming' | 'done' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
 
+  const [filterGame, setFilterGame] = useState<string | 'all'>('all')
+  const [filterPropType, setFilterPropType] = useState<string | 'all'>('all')
+  const [filterConfidence, setFilterConfidence] = useState<Confidence | 'all'>('all')
+  const [filterRec, setFilterRec] = useState<Recommendation | 'all'>('all')
+
+  // Derive filter options from whatever has streamed in so far
+  const games = useMemo(
+    () => [...new Set(picks.map((p) => p.game).filter(Boolean))],
+    [picks],
+  )
+  const propTypes = useMemo(
+    () => [...new Set(picks.map((p) => p.propType))],
+    [picks],
+  )
+
+  const filteredPicks = useMemo(() => {
+    return picks.filter((p) => {
+      if (filterGame !== 'all' && p.game !== filterGame) return false
+      if (filterPropType !== 'all' && p.propType !== filterPropType) return false
+      if (filterConfidence !== 'all' && p.confidence !== filterConfidence) return false
+      if (filterRec !== 'all' && p.recommendation !== filterRec) return false
+      return true
+    })
+  }, [picks, filterGame, filterPropType, filterConfidence, filterRec])
+
+  // Group filtered picks by game for display
+  const picksByGame = useMemo(() => {
+    const map = new Map<string, PropPick[]>()
+    for (const pick of filteredPicks) {
+      const g = pick.game || 'Unknown Game'
+      if (!map.has(g)) map.set(g, [])
+      map.get(g)!.push(pick)
+    }
+    return map
+  }, [filteredPicks])
+
+  function resetFilters() {
+    setFilterGame('all')
+    setFilterPropType('all')
+    setFilterConfidence('all')
+    setFilterRec('all')
+  }
+
   async function analyze() {
     setStatus('loading')
     setError(null)
     setPicks([])
+    resetFilters()
 
     try {
       const res = await fetch('/api/analyze', {
@@ -127,7 +215,6 @@ export default function Home() {
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
-        // Keep the last (potentially incomplete) line in the buffer
         buffer = lines.pop() ?? ''
 
         for (const line of lines) {
@@ -139,12 +226,11 @@ export default function Home() {
               setPicks((prev) => [...prev, pick])
             }
           } catch {
-            // incomplete JSON chunk — skip
+            // incomplete chunk — skip
           }
         }
       }
 
-      // Flush remaining buffer
       const remaining = buffer.trim()
       if (remaining) {
         try {
@@ -165,6 +251,11 @@ export default function Home() {
   }
 
   const isRunning = status === 'loading' || status === 'streaming'
+  const hasActiveFilters =
+    filterGame !== 'all' ||
+    filterPropType !== 'all' ||
+    filterConfidence !== 'all' ||
+    filterRec !== 'all'
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -227,12 +318,43 @@ export default function Home() {
           </div>
         )}
 
+        {/* Filters — shown once picks start arriving */}
+        {picks.length > 0 && (
+          <div className="mb-6 space-y-3 p-4 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+            <FilterPills
+              label="Game"
+              options={games}
+              value={filterGame}
+              onChange={setFilterGame}
+            />
+            <FilterPills
+              label="Prop"
+              options={propTypes}
+              value={filterPropType}
+              onChange={setFilterPropType}
+            />
+            <FilterPills
+              label="Confidence"
+              options={['high', 'medium', 'low'] as Confidence[]}
+              value={filterConfidence}
+              onChange={setFilterConfidence}
+            />
+            <FilterPills
+              label="Pick"
+              options={['OVER', 'UNDER', 'AVOID'] as Recommendation[]}
+              value={filterRec}
+              onChange={setFilterRec}
+            />
+          </div>
+        )}
+
         {/* Results */}
         {picks.length > 0 && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between mb-2">
+          <div className="space-y-8">
+            <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
-                {sport} Props · {picks.length} analyzed
+                {sport} Props · {filteredPicks.length}
+                {hasActiveFilters && ` of ${picks.length}`} analyzed
               </h2>
               <div className="flex items-center gap-3 text-xs text-zinc-400 dark:text-zinc-600">
                 <span className="flex items-center gap-1">
@@ -247,8 +369,26 @@ export default function Home() {
               </div>
             </div>
 
-            {picks.map((pick, i) => (
-              <PropCard key={`${pick.player}-${pick.propType}-${i}`} pick={pick} />
+            {filteredPicks.length === 0 && (
+              <p className="text-sm text-zinc-400 dark:text-zinc-500">
+                No props match the current filters.{' '}
+                <button onClick={resetFilters} className="underline">
+                  Clear filters
+                </button>
+              </p>
+            )}
+
+            {[...picksByGame.entries()].map(([game, gamePicks]) => (
+              <div key={game}>
+                <h3 className="text-xs font-semibold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest mb-3">
+                  {game}
+                </h3>
+                <div className="space-y-4">
+                  {gamePicks.map((pick, i) => (
+                    <PropCard key={`${pick.player}-${pick.propType}-${i}`} pick={pick} />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         )}

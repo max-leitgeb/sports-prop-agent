@@ -18,7 +18,7 @@ export async function researchPlayer(
       maxResults: 3,
       includeAnswer: true,
     }),
-    tv.search(`${player} injury status ${opponent}`, {
+    tv.search(`${player} injury report active roster status 2026`, {
       searchDepth: 'basic',
       maxResults: 2,
       includeAnswer: true,

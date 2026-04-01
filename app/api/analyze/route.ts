@@ -1,11 +1,32 @@
 import { openai } from '@ai-sdk/openai'
 import { streamText } from 'ai'
-import { fetchPlayerProps, SPORT_KEYS } from '@/lib/odds'
+import { fetchPlayerProps, SPORT_KEYS, type PropLine } from '@/lib/odds'
 import { researchPlayers } from '@/lib/research'
 
 export const maxDuration = 60
 
-const MAX_PLAYERS = 5
+const PLAYERS_PER_GAME = 4
+
+function selectPlayersAcrossGames(allProps: PropLine[]): PropLine[] {
+  // Group props by game
+  const byGame = new Map<string, PropLine[]>()
+  for (const prop of allProps) {
+    const gameKey = `${prop.awayTeam} @ ${prop.homeTeam}`
+    if (!byGame.has(gameKey)) byGame.set(gameKey, [])
+    byGame.get(gameKey)!.push(prop)
+  }
+
+  // Pick up to PLAYERS_PER_GAME unique players per game
+  const selectedPlayers = new Set<string>()
+  for (const gameProps of byGame.values()) {
+    const uniqueInGame = [...new Map(gameProps.map((p) => [p.player, p])).values()]
+    for (const p of uniqueInGame.slice(0, PLAYERS_PER_GAME)) {
+      selectedPlayers.add(p.player)
+    }
+  }
+
+  return allProps.filter((p) => selectedPlayers.has(p.player))
+}
 
 export async function POST(req: Request) {
   const { sport } = await req.json()
@@ -32,14 +53,9 @@ export async function POST(req: Request) {
     )
   }
 
-  // 2. Select top players (deduplicated) and their props
-  const uniquePlayers = [
-    ...new Map(allProps.map((p) => [p.player, p])).values(),
-  ].slice(0, MAX_PLAYERS)
-
-  const selectedProps = allProps.filter((p) =>
-    uniquePlayers.some((u) => u.player === p.player),
-  )
+  // 2. Select players spread across games
+  const selectedProps = selectPlayersAcrossGames(allProps)
+  const uniquePlayers = [...new Map(selectedProps.map((p) => [p.player, p])).values()]
 
   // 3. Research each player in parallel with Tavily
   let research
@@ -47,11 +63,10 @@ export async function POST(req: Request) {
     research = await researchPlayers(
       uniquePlayers.map((p) => ({
         player: p.player,
-        opponent: p.homeTeam === p.awayTeam ? p.awayTeam : p.awayTeam,
+        opponent: p.awayTeam,
       })),
     )
   } catch {
-    // Research is best-effort — don't fail the whole request
     research = uniquePlayers.map((p) => ({
       player: p.player,
       stats: 'Research unavailable',
@@ -59,11 +74,11 @@ export async function POST(req: Request) {
     }))
   }
 
-  // 4. Build prompt context
+  // 4. Build prompt context — include game label so AI can echo it back
   const propsContext = selectedProps
     .map(
       (p) =>
-        `${p.player} | ${p.propType} ${p.line} | Over ${p.overOdds ?? 'N/A'} / Under ${p.underOdds ?? 'N/A'} | ${p.homeTeam} vs ${p.awayTeam}`,
+        `${p.player} | ${p.propType} | Line: ${p.line} | Over ${p.overOdds ?? 'N/A'} / Under ${p.underOdds ?? 'N/A'} | Game: ${p.awayTeam} @ ${p.homeTeam}`,
     )
     .join('\n')
 
@@ -84,6 +99,7 @@ export async function POST(req: Request) {
   "player": string,
   "propType": string,
   "line": number,
+  "game": string (copy the "Game:" value from the props context verbatim, e.g. "Yankees @ Red Sox"),
   "recommendation": "OVER" | "UNDER" | "AVOID",
   "confidence": "high" | "medium" | "low",
   "reasoning": string (2-3 sentences max),
@@ -101,7 +117,8 @@ Rules:
 - confidence "high" = strong statistical or situational edge
 - confidence "medium" = slight lean, some uncertainty
 - confidence "low" / recommendation "AVOID" = conflicting signals or too risky
-- injuryFlag: note any injury concern, or null if healthy
+- injuryFlag: ONLY set this if the player is currently listed as Questionable, Doubtful, Out, or on the IL/IR. If they are active and healthy, set null. Do NOT flag past injuries or general soreness mentions.
+- game: must be copied verbatim from the props context "Game:" field
 - Keep reasoning concise and factual
 - Output ONLY the JSON lines, nothing else`,
   })
